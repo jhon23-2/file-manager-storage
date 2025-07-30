@@ -3,14 +3,20 @@ const multer = require('multer')
 const router = express.Router()
 
 const FileManagerController = require('../controllers/file-controller')
-const validateFileUploadMiddleware = require('../middleware/zod-validation')
+const {
+  validateFileUploadMiddleware,
+  validatePaginationMiddleware
+} = require('../middleware/zod-validation')
 const validateIdMiddleware = require('../middleware/id-validation')
 
 // upload files in memory to do validation 
 const upload = multer({ storage: multer.memoryStorage() })
 
 router.route('/')
-  .get(FileManagerController.getAllFiles)
+  .get(
+    validatePaginationMiddleware,
+    FileManagerController.getAllFiles
+  )
   .post(
     upload.single('file'), // middleware Multer validates file sended with multipart/form-data type 
     validateFileUploadMiddleware, // middleware zod validation so that validates types and how coming file 
