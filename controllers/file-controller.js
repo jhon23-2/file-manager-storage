@@ -1,13 +1,13 @@
 const pool = require('../config/db')
 const HttpError = require('../models/error-model')
 
-class FileManagerController {
+class FileManagerController { 
 
   static async uploadFile(request, response) {
     try {
       // At this point, request.file has already been validated by validateFileUpload middleware
       const { originalname, mimetype, size, buffer } = request.file
-      
+
       const result = await pool.query(
         "INSERT INTO files (name, mimetype, size, data) VALUES ($1, $2, $3, $4) RETURNING id, name, mimetype, size",
         [originalname, mimetype, size, buffer],
@@ -30,7 +30,6 @@ class FileManagerController {
 
     const { page, limit, orderBy, direction } = request.query
     const offset = (Number.parseInt(page) - 1) * Number.parseInt(limit)
-
 
 
     let
