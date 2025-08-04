@@ -1,7 +1,7 @@
 const pool = require('../config/db')
 const HttpError = require('../models/error-model')
 
-class FileManagerController { 
+class FileManagerController {
 
   static async uploadFile(request, response) {
     try {
