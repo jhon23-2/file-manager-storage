@@ -2,6 +2,7 @@ const express = require('express')
 const app = express()
 const validateTokenMiddleware = require('./middleware/token-validation')
 const cors = require('cors')
+const sequelize = require('./config/db')
 require("dotenv").config()
 
 const handlerRouterFileManager = require('./router/router')
@@ -20,6 +21,19 @@ app.use('/api/v1/auth', handlerRouterAuthManager)
 app.use(handlerErrorMiddleware)
 app.use(handlerNotFound)
 
-const port = process.env.PORT || 3000
 
-app.listen(port, console.log(`Listening http://localhost:${port}`))
+
+const init = async (port = process.env.PORT || 3000) => {
+  try {
+    await sequelize.authenticate()
+    app.listen(port, console.log(`Listening on ${port} and databae connected ✅`))
+  } catch (error) {
+    console.log(error)
+  }
+}
+
+
+init()
+
+
+
