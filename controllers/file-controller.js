@@ -1,119 +1,103 @@
-const pool = require('../config/db')
+const sequelize = require('../config/db')
 const HttpError = require('../models/error-model')
+const { FileUpload } = require('../models/realationship')
+const { StatusCodes } = require('http-status-codes')
+
 
 class FileManagerController {
 
-  static async uploadFile(request, response) {
+  // Buffer is too long fix it
+  static async uploadFile(request, response, next) {
     try {
-      // At this point, request.file has already been validated by validateFileUpload middleware
-      const { originalname, mimetype, size, buffer } = request.file
 
-      const result = await pool.query(
-        "INSERT INTO files (name, mimetype, size, data) VALUES ($1, $2, $3, $4) RETURNING id, name, mimetype, size",
-        [originalname, mimetype, size, buffer],
-      )
+      const { userId } = request.user // this is setted from token validation middleware
+      
 
-      return response.status(201).json({
-        message: "File uploaded successfully",
-        data: result.rows[0]
+      if (!userId) return next(new HttpError("userId cannot be null", StatusCodes.BAD_REQUEST ))
+
+      const file = await FileUpload.create({
+        ...request.file, // -> At this point, request.file has already been validated by validateFileUpload middleware
+        userId
+      })
+
+      response.status(StatusCodes.CREATED).json({
+        message: "File upload succesfully",
+        data: {
+          id: file.id,
+          originalname: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          userId: file.userId,
+          updated_on: file.updated_on,
+          created_on: file.created_on
+        }
       })
 
     } catch (error) {
       console.log(error);
-      return response.status(500).json({ error: error.message })
+      return next(new HttpError(error.message, StatusCodes.BAD_REQUEST))
     }
   }
 
-  static async getAllFiles(request, response) {
-
-    // before to extract data all is validated previously in middleware (validatePaginationMiddleware)
-
-    const { page, limit, orderBy, direction } = request.query
-    const offset = (Number.parseInt(page) - 1) * Number.parseInt(limit)
-
-
-    let
-      totalFiles = null,
-      filesResult,
-      files,
-      totalPages = null;
-
-    if (!isNaN(Number.parseInt(page)) && !isNaN(Number.parseInt(limit))) {
-
-      const countResult = await pool.query("SELECT COUNT(*) FROM files")
-      totalFiles = Number.parseInt(countResult.rows[0].count, 10)
-
-      filesResult = await pool.query(
-        `SELECT id, name, mimetype, size, uploaded_at FROM files ORDER BY $1 ${direction} LIMIT $2 OFFSET $3`,
-        [orderBy, limit, offset],
-      )
-
-      files = filesResult.rows
-      totalPages = Math.ceil(totalFiles / limit)
-
-      return response.status(200).json({
-        amount: totalFiles,
-        data: files?.map(file => {
-          return {
-            ...file,
-            downloadUrl: `${request.protocol}://${request.get('host')}/api/v1/file/manager/download/${file.id}`,
-            previewUrl: `${request.protocol}://${request.get('host')}/api/v1/file/manager/preview/${file.id}`,
-          }
-        }),
-        pagination: {
-          totalFiles: totalFiles,
-          currentPage: page,
-          limit: limit,
-          totalPages: totalPages,
-        }
-      })
-    }
-
+  static async getAllFiles(request, response, next) {
     try {
-      const result = await pool.query("SELECT id,name, mimetype, size, uploaded_at FROM files")
+      const URL = `${request.protocol}://${request.get('host')}/api/v1/file/manager`; // constans url 
 
-      return response.status(200).json({
-        amount: result.rowCount,
-        data: result.rows?.map(file => {
-          return {
-            ...file,
-            downloadUrl: `${request.protocol}://${request.get('host')}/api/v1/file/manager/download/${file.id}`,
-            previewUrl: `${request.protocol}://${request.get('host')}/api/v1/file/manager/preview/${file.id}`,
-          }
-        }),
-        pagination: {
-          totalFiles: totalFiles,
-          currentPage: page,
+      const { page = 1, limit = 10, orderBy = 'updated_on', direction = 'ASC' } = request.query;
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      let totalFiles = null;
+      let files, totalPages = null;
+
+      const { count, rows } = await FileUpload.findAndCountAll({
+        order: [[orderBy, direction.toUpperCase()]],
+        limit: parseInt(limit),
+        offset: offset
+      });
+
+      totalFiles = count;
+      files = rows;
+      totalPages = Math.ceil(totalFiles / limit); // total pages files
+
+
+      // Find all file with pagination params 
+      
+      const result = await FileUpload.findAll(
+        {
           limit: limit,
-          totalPages: totalPages,
+          offset: offset,
+          order: [[orderBy, direction]]
         }
-      })
-    } catch (error) {
-      console.log(error);
-      return response.status(500).json({ error: error.message })
-    }
+      );
+      const data = FileManagerController.getFullResponse(result, totalFiles, page, limit, totalPages, URL)
 
+      // Response ...
+      return response.status(StatusCodes.OK).json(data);
+
+    } catch (error) {
+      console.error(error);
+      return next(new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR))
+    }
   }
 
   static async downloadFile(request, response, next) {
     const id = request.params.id
 
     try {
-      const result = await pool.query("SELECT name, mimetype, data FROM files WHERE id = $1", [id])
+      const result = await FileUpload.findOne({where: {id}})
 
-      if (result.rows.length === 0) {
-        return next(new HttpError(`File not Found make sure to send correct id`, 404))
+      if (!result) {
+        return next(new HttpError(`File not Found make sure to send correct id`, StatusCodes.NOT_FOUND))
       }
 
-      const file = result.rows[0]
 
-      response.setHeader("Content-Type", file.mimetype)
-      response.setHeader("Content-Disposition", `attachment; filename="${file.name}"`)
-      response.send(file.data)
+      response.setHeader("Content-Type", result.mimetype)
+      response.setHeader("Content-Disposition", `attachment; filename="${result.name}"`)
+      response.send(result.buffer)
 
     } catch (error) {
       console.log(error);
-      return response.status(500).json({ error: error.message })
+      return next(new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR))
     }
   }
 
@@ -121,21 +105,19 @@ class FileManagerController {
     const id = request.params.id
 
     try {
-      const result = await pool.query("SELECT name, mimetype, data FROM files WHERE id = $1", [id])
+        const result = await FileUpload.findOne({where: {id}})
 
-      if (result.rows.length === 0) {
-        return next(new HttpError(`File not Found make sure to send correct id`, 404))
+      if (!result) {
+        return next(new HttpError(`File not Found make sure to send correct id`, StatusCodes.NOT_FOUND))
       }
 
-      const file = result.rows[0]
+      response.setHeader("Content-Type", result.mimetype)
+      response.setHeader("Content-Disposition", `inline; filename="${result.name}"`)
+      response.send(result.buffer)
 
-      response.setHeader("Content-Type", file.mimetype)
-      response.setHeader("Content-Disposition", `inline; filename="${file.name}"`)
-      response.send(file.data)
-
-    } catch (error) {
+    } catch (error) { 
       console.log(error);
-      return response.status(500).json({ error: error.message })
+      return next(new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR))
     }
   }
 
@@ -143,22 +125,47 @@ class FileManagerController {
     const id = request.params.id
 
     try {
-      const result = await pool.query("SELECT name, mimetype, data FROM files WHERE id = $1", [id])
+      const result = await FileUpload.findOne({where: {id}})
 
-      if (result.rows.length === 0) {
-        return next(new HttpError(`File not Found make sure to send correct id`, 404))
+      if (!result) {
+        return next(new HttpError(`File not Found make sure to send correct id`, StatusCodes.NOT_FOUND))
       }
 
-      await pool.query("DELETE FROM files WHERE id = $1", [id])
+      await result.destroy() // remove file found 
 
-      return response.status(200).json({
+      return response.status(StatusCodes.OK).json({
         message: `File deleted ${id} successfully`
       })
     } catch (error) {
       console.log(error);
-      return response.status(500).json({ error: error.message })
+      return next(new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR))
     }
   }
+
+
+  // tool for to get full data 
+  static getFullResponse(data = [], totalFiles, page, limit, totalPages, url) {
+    return {
+      amount: data.length,
+      data: data.map(file => ({
+        id: file.id,
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        created_on: file.created_on,
+        updated_on: file.updated_on,
+        downloadUrl: `${url}/download/${file.id}`,
+        previewUrl: `${url}/preview/${file.id}`,
+      })),
+      pagination: {
+        totalFiles,
+        currentPage: page,
+        limit,
+        totalPages
+      }
+    }
+  }
+
 
 }
 

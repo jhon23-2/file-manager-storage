@@ -30,12 +30,12 @@ const paginationSchema = z.object({
   direction: z.string()
     .transform(val => val.trim().toUpperCase())
     .pipe(z.enum(['ASC', 'DESC']))
-    .default('DESC'),
+    .default('ASC'),
 
   orderBy: z.string()
     .transform(val => val.trim().toLowerCase())
-    .pipe(z.enum(['name', 'size', 'uploaded_at']))
-    .default('uploaded_at')
+    .pipe(z.enum(['id','name', 'size', 'upload_at', 'created_on']))
+    .default('updated_on')
 })
 
   

@@ -1,4 +1,5 @@
-const pool = require('../config/db')
+const sequelize = require('../config/db')
+const { User } = require('../models/realationship')
 const HttpError = require('../models/error-model')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
@@ -7,18 +8,22 @@ const { StatusCodes } = require('http-status-codes')
 class UserController {
   static async register(request, response, next) {
     // at this point request.body has been validated
-    const { firstName, lastName, email, username, password } = request.body
+    const { firstName: firstname, lastName: lastname, email, username, password } = request.body
 
     try {
 
       const hashedPassword = await bcrypt.hash(password, 10); // 10 -> pow(2, 10) 1024 bytes
 
-      const result = await pool.query('INSERT INTO users (first_name, last_name, email, username, password) VALUES ($1, $2, $3, $4, $5) RETURNING id, first_name, last_name, username',
-        [firstName, lastName, email, username, hashedPassword])
 
-      response.status(StatusCodes.CREATED).json({
-        data: result.rows[0]
+      const user = await User.create({
+        firstname,
+        lastname,
+        email,
+        username,
+        password: hashedPassword
       })
+
+      response.status(StatusCodes.CREATED).json(user)
 
     } catch (error) {
       return next(new HttpError('an error unexpected ' + error, StatusCodes.INTERNAL_SERVER_ERROR))
@@ -27,29 +32,30 @@ class UserController {
 
   static async login(request, response, next) {
     // at this point request.body is validated 
-    const { email: username, password } = request.body
+    const { email , password } = request.body
 
     try {
       // validated if user isExist inside database 
 
-      const result = await pool.query('SELECT * FROM users WHERE email=$1', [username])
+      const result = await User.findOne({where: {email}})
 
-      if (result.rows.length === 0) {
-        return next(new HttpError('user with is not exist ' + username, StatusCodes.NOT_FOUND))
+      if (!result) {
+        return next(new HttpError('user with is not exist ' + email, StatusCodes.NOT_FOUND))
       }
 
       // validate if password is correct 
 
-      const hashedPassword = result.rows[0].password;
-      const isMatch = await bcrypt.compare(password, hashedPassword)
+      const hashedPassword = result instanceof User ? result.password: null;
+      if(!hashedPassword) throw new Error("something went wrong try again");
+      
 
+      const isMatch = await bcrypt.compare(password, hashedPassword)
       if (!isMatch) return next(new HttpError('invalid credentials', StatusCodes.BAD_REQUEST))
 
 
       // generate token   
-
-      const { id, email, first_name, last_name } = result.rows[0]
-      const payload = { id, email, first_name, last_name }
+      const {id: userId, firstname, lastname, email: username} = result
+      const payload = {userId, firstname, lastname, username} 
 
       const jwtToken = jwt.sign(
         payload,
@@ -69,5 +75,6 @@ class UserController {
 
   }
 }
+
 
 module.exports = UserController

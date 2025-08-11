@@ -9,7 +9,7 @@ const {
 } = require('../middleware/zod-validation')
 const validateIdMiddleware = require('../middleware/id-validation')
 
-// upload files in memory to do validation 
+// upload files in memory to do validation (Multer is like multipart form data for files)
 const upload = multer({ storage: multer.memoryStorage() })
 
 router.route('/')
