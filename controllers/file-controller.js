@@ -1,21 +1,35 @@
-const pool = require('../config/db')
+const sequelize = require('../config/db')
 const HttpError = require('../models/error-model')
+const { FileUpload } = require('../models/realationship')
+const { StatusCodes } = require('http-status-codes')
+
 
 class FileManagerController {
 
+  // Buffer is too long fix it
   static async uploadFile(request, response) {
     try {
-      // At this point, request.file has already been validated by validateFileUpload middleware
-      const { originalname, mimetype, size, buffer } = request.file
 
-      const result = await pool.query(
-        "INSERT INTO files (name, mimetype, size, data) VALUES ($1, $2, $3, $4) RETURNING id, name, mimetype, size",
-        [originalname, mimetype, size, buffer],
-      )
+      const { userId } = request.user
 
-      return response.status(201).json({
-        message: "File uploaded successfully",
-        data: result.rows[0]
+      if (!userId) return response.status(StatusCodes.BAD_REQUEST).json({ error: "userId cannot be null" })
+
+      const file = await FileUpload.create({
+        ...request.file, // -> At this point, request.file has already been validated by validateFileUpload middleware
+        userId
+      })
+
+      response.status(StatusCodes.CREATED).json({
+        message: "File upload succesfully",
+        data: {
+          id: file.id,
+          originalname: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          userId: file.userId,
+          updated_on: file.updated_on,
+          created_on: file.created_on
+        }
       })
 
     } catch (error) {
@@ -24,75 +38,36 @@ class FileManagerController {
     }
   }
 
-  static async getAllFiles(request, response) {
-
-    // before to extract data all is validated previously in middleware (validatePaginationMiddleware)
-
-    const { page, limit, orderBy, direction } = request.query
-    const offset = (Number.parseInt(page) - 1) * Number.parseInt(limit)
-
-
-    let
-      totalFiles = null,
-      filesResult,
-      files,
-      totalPages = null;
-
-    if (!isNaN(Number.parseInt(page)) && !isNaN(Number.parseInt(limit))) {
-
-      const countResult = await pool.query("SELECT COUNT(*) FROM files")
-      totalFiles = Number.parseInt(countResult.rows[0].count, 10)
-
-      filesResult = await pool.query(
-        `SELECT id, name, mimetype, size, uploaded_at FROM files ORDER BY $1 ${direction} LIMIT $2 OFFSET $3`,
-        [orderBy, limit, offset],
-      )
-
-      files = filesResult.rows
-      totalPages = Math.ceil(totalFiles / limit)
-
-      return response.status(200).json({
-        amount: totalFiles,
-        data: files?.map(file => {
-          return {
-            ...file,
-            downloadUrl: `${request.protocol}://${request.get('host')}/api/v1/file/manager/download/${file.id}`,
-            previewUrl: `${request.protocol}://${request.get('host')}/api/v1/file/manager/preview/${file.id}`,
-          }
-        }),
-        pagination: {
-          totalFiles: totalFiles,
-          currentPage: page,
-          limit: limit,
-          totalPages: totalPages,
-        }
-      })
-    }
-
+  static async getAllFiles(req, res) {
     try {
-      const result = await pool.query("SELECT id,name, mimetype, size, uploaded_at FROM files")
+      const URL = `${req.protocol}://${req.get('host')}/api/v1/file/manager`; // constans url 
 
-      return response.status(200).json({
-        amount: result.rowCount,
-        data: result.rows?.map(file => {
-          return {
-            ...file,
-            downloadUrl: `${request.protocol}://${request.get('host')}/api/v1/file/manager/download/${file.id}`,
-            previewUrl: `${request.protocol}://${request.get('host')}/api/v1/file/manager/preview/${file.id}`,
-          }
-        }),
-        pagination: {
-          totalFiles: totalFiles,
-          currentPage: page,
-          limit: limit,
-          totalPages: totalPages,
-        }
-      })
+      const { page = 1, limit = 10, orderBy = 'updated_on', direction = 'ASC' } = req.query;
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      let totalFiles = null;
+      let files, totalPages = null;
+
+      const { count, rows } = await FileUpload.findAndCountAll({
+        order: [[orderBy, direction.toUpperCase()]],
+        limit: parseInt(limit),
+        offset: offset
+      });
+
+      totalFiles = count;
+      files = rows;
+      totalPages = Math.ceil(totalFiles / limit); // total pages files
+
+      const result = await FileUpload.findAll();
+      const data = FileManagerController.getFullResponse(result, totalFiles, page, limit, totalPages, URL)
+
+      // Response ...
+      return res.status(200).json(data);
+
     } catch (error) {
-      console.log(error);
-      return response.status(500).json({ error: error.message })
+      console.error(error);
+      return res.status(500).json({ error: error.message });
     }
-
   }
 
   static async downloadFile(request, response, next) {
@@ -159,6 +134,31 @@ class FileManagerController {
       return response.status(500).json({ error: error.message })
     }
   }
+
+
+  // tool for to get full data 
+  static getFullResponse(data = [], totalFiles, page, limit, totalPages, url) {
+    return {
+      amount: data.length,
+      data: data.map(file => ({
+        id: file.id,
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        created_on: file.created_on,
+        updated_on: file.updated_on,
+        downloadUrl: `${url}/download/${file.id}`,
+        previewUrl: `${url}/preview/${file.id}`,
+      })),
+      pagination: {
+        totalFiles,
+        currentPage: page,
+        limit,
+        totalPages
+      }
+    }
+  }
+
 
 }
 

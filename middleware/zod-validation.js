@@ -71,7 +71,7 @@ const loginMiddleware = (request, response, next) => {
     return next(new HttpError("Missed body , body must be required", StatusCodes.BAD_REQUEST))
   }
 
-  try {
+  try { 
     const result = userSchema.partial().safeParse(request.body)
 
     if (!result.success) {

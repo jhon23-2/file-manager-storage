@@ -6,4 +6,4 @@ const { validateUserSchemaMiddleware, loginMiddleware } = require('../middleware
 router.post('/register', validateUserSchemaMiddleware, UserController.register)
 router.post('/login', loginMiddleware, UserController.login)
 
-module.exports = router
+module.exports = router 
