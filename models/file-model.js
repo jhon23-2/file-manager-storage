@@ -43,7 +43,9 @@ const FileUpload = sequelize.define('FileUpload', {
   },
 }, {
   tableName: 'file_uploads',
-  timestamps: true
+  timestamps: true,
+  createdAt: 'created_on', 
+  updatedAt: 'updated_on' 
 });
 
 module.exports = FileUpload;

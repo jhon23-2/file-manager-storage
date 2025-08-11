@@ -59,9 +59,12 @@ const User = sequelize.define('User', {
     validate: {
       notEmpty: { msg: 'Password is required' }
     }
-  },
+  }
+}, {
   tableName: 'users',
   timestamps: true,
+  createdAt: 'created_on',
+  updatedAt: 'updated_on'
 })
 
 
