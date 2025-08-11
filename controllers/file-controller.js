@@ -7,12 +7,13 @@ const { StatusCodes } = require('http-status-codes')
 class FileManagerController {
 
   // Buffer is too long fix it
-  static async uploadFile(request, response) {
+  static async uploadFile(request, response, next) {
     try {
 
-      const { userId } = request.user
+      const { userId } = request.user // this is setted from token validation middleware
+      
 
-      if (!userId) return response.status(StatusCodes.BAD_REQUEST).json({ error: "userId cannot be null" })
+      if (!userId) return next(new HttpError("userId cannot be null", StatusCodes.BAD_REQUEST ))
 
       const file = await FileUpload.create({
         ...request.file, // -> At this point, request.file has already been validated by validateFileUpload middleware
@@ -34,15 +35,15 @@ class FileManagerController {
 
     } catch (error) {
       console.log(error);
-      return response.status(500).json({ error: error.message })
+      return next(new HttpError(error.message, StatusCodes.BAD_REQUEST))
     }
   }
 
-  static async getAllFiles(req, res) {
+  static async getAllFiles(request, response, next) {
     try {
-      const URL = `${req.protocol}://${req.get('host')}/api/v1/file/manager`; // constans url 
+      const URL = `${request.protocol}://${request.get('host')}/api/v1/file/manager`; // constans url 
 
-      const { page = 1, limit = 10, orderBy = 'updated_on', direction = 'ASC' } = req.query;
+      const { page = 1, limit = 10, orderBy = 'updated_on', direction = 'ASC' } = request.query;
       const offset = (parseInt(page) - 1) * parseInt(limit);
 
       let totalFiles = null;
@@ -58,15 +59,24 @@ class FileManagerController {
       files = rows;
       totalPages = Math.ceil(totalFiles / limit); // total pages files
 
-      const result = await FileUpload.findAll();
+
+      // Find all file with pagination params 
+      
+      const result = await FileUpload.findAll(
+        {
+          limit: limit,
+          offset: offset,
+          order: [[orderBy, direction]]
+        }
+      );
       const data = FileManagerController.getFullResponse(result, totalFiles, page, limit, totalPages, URL)
 
       // Response ...
-      return res.status(200).json(data);
+      return response.status(StatusCodes.OK).json(data);
 
     } catch (error) {
       console.error(error);
-      return res.status(500).json({ error: error.message });
+      return next(new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR))
     }
   }
 
@@ -74,21 +84,20 @@ class FileManagerController {
     const id = request.params.id
 
     try {
-      const result = await pool.query("SELECT name, mimetype, data FROM files WHERE id = $1", [id])
+      const result = await FileUpload.findOne({where: {id}})
 
-      if (result.rows.length === 0) {
-        return next(new HttpError(`File not Found make sure to send correct id`, 404))
+      if (!result) {
+        return next(new HttpError(`File not Found make sure to send correct id`, StatusCodes.NOT_FOUND))
       }
 
-      const file = result.rows[0]
 
-      response.setHeader("Content-Type", file.mimetype)
-      response.setHeader("Content-Disposition", `attachment; filename="${file.name}"`)
-      response.send(file.data)
+      response.setHeader("Content-Type", result.mimetype)
+      response.setHeader("Content-Disposition", `attachment; filename="${result.name}"`)
+      response.send(result.buffer)
 
     } catch (error) {
       console.log(error);
-      return response.status(500).json({ error: error.message })
+      return next(new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR))
     }
   }
 
@@ -96,21 +105,19 @@ class FileManagerController {
     const id = request.params.id
 
     try {
-      const result = await pool.query("SELECT name, mimetype, data FROM files WHERE id = $1", [id])
+        const result = await FileUpload.findOne({where: {id}})
 
-      if (result.rows.length === 0) {
-        return next(new HttpError(`File not Found make sure to send correct id`, 404))
+      if (!result) {
+        return next(new HttpError(`File not Found make sure to send correct id`, StatusCodes.NOT_FOUND))
       }
 
-      const file = result.rows[0]
+      response.setHeader("Content-Type", result.mimetype)
+      response.setHeader("Content-Disposition", `inline; filename="${result.name}"`)
+      response.send(result.buffer)
 
-      response.setHeader("Content-Type", file.mimetype)
-      response.setHeader("Content-Disposition", `inline; filename="${file.name}"`)
-      response.send(file.data)
-
-    } catch (error) {
+    } catch (error) { 
       console.log(error);
-      return response.status(500).json({ error: error.message })
+      return next(new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR))
     }
   }
 
@@ -118,20 +125,20 @@ class FileManagerController {
     const id = request.params.id
 
     try {
-      const result = await pool.query("SELECT name, mimetype, data FROM files WHERE id = $1", [id])
+      const result = await FileUpload.findOne({where: {id}})
 
-      if (result.rows.length === 0) {
-        return next(new HttpError(`File not Found make sure to send correct id`, 404))
+      if (!result) {
+        return next(new HttpError(`File not Found make sure to send correct id`, StatusCodes.NOT_FOUND))
       }
 
-      await pool.query("DELETE FROM files WHERE id = $1", [id])
+      await result.destroy() // remove file found 
 
-      return response.status(200).json({
+      return response.status(StatusCodes.OK).json({
         message: `File deleted ${id} successfully`
       })
     } catch (error) {
       console.log(error);
-      return response.status(500).json({ error: error.message })
+      return next(new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR))
     }
   }
 

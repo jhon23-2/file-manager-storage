@@ -34,7 +34,7 @@ const paginationSchema = z.object({
 
   orderBy: z.string()
     .transform(val => val.trim().toLowerCase())
-    .pipe(z.enum(['name', 'size', 'upload_at', 'created_on']))
+    .pipe(z.enum(['id','name', 'size', 'upload_at', 'created_on']))
     .default('updated_on')
 })
 
